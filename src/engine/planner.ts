@@ -249,16 +249,22 @@ export function planRoutes(truck: Truck, loads: Load[], opts: PlanOptions): Rout
 
   // Full-length plans come first; shorter ones only fill in when there aren't enough.
   const ranked = [...rank(complete), ...rank(partial)];
+  // Two plans that run the same lanes in the same order read as duplicates to a
+  // dispatcher even if the loads differ, so lanes, not load ids, decide "different".
+  const lane = (l: RouteLeg) => `${placeLabel(l.load.origin)}>${placeLabel(l.load.destination)}`;
   const chosen: typeof ranked = [];
-  const firstLoads = new Set<string>();
+  const seenPaths = new Set<string>();
+  const seenFirstLanes = new Set<string>();
   for (const pass of [true, false]) {
     for (const route of ranked) {
       if (chosen.length >= maxAlternatives) break;
-      if (chosen.includes(route)) continue;
-      // First pass: one alternative per starting load, so options are genuinely different.
-      const first = route.legs[0]!.load.id;
-      if (pass && firstLoads.has(first)) continue;
-      firstLoads.add(first);
+      const path = route.legs.map(lane).join("|");
+      if (seenPaths.has(path)) continue;
+      // First pass: one alternative per starting lane, so options are genuinely different.
+      const first = lane(route.legs[0]!);
+      if (pass && seenFirstLanes.has(first)) continue;
+      seenFirstLanes.add(first);
+      seenPaths.add(path);
       chosen.push(route);
     }
   }

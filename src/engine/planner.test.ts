@@ -159,15 +159,18 @@ describe("planRoutes", () => {
     }
   });
 
-  it("returns several alternatives with different first loads on a real-size board", () => {
+  it("returns several distinct alternatives on a real-size board", () => {
     const board = makeLoadBoard(42, NOW);
     for (const t of sampleTrucks(NOW)) {
       const routes = planRoutes(t, board, { now: NOW, tz: TZ });
       expect(routes.length).toBeGreaterThan(0);
-      expect(new Set(routes.map((r) => r.id)).size).toBe(routes.length);
-      // Distinct starting loads come first; repeats only fill in when there aren't enough.
-      const firsts = new Set(routes.map((r) => r.legs[0]!.load.id));
-      const leading = routes.slice(0, firsts.size).map((r) => r.legs[0]!.load.id);
+      const lanes = (r: (typeof routes)[number]) =>
+        r.legs.map((l) => `${l.load.origin.city}>${l.load.destination.city}`);
+      // No two plans run the same lanes in the same order.
+      expect(new Set(routes.map((r) => lanes(r).join("|"))).size).toBe(routes.length);
+      // Distinct starting lanes come first; repeats only fill in when there aren't enough.
+      const firsts = new Set(routes.map((r) => lanes(r)[0]));
+      const leading = routes.slice(0, firsts.size).map((r) => lanes(r)[0]);
       expect(new Set(leading).size).toBe(firsts.size);
       for (const r of routes) {
         expect(r.legs.length).toBeLessThanOrEqual(t.rules.maxLoadsPerRoute);
