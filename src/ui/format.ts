@@ -8,6 +8,9 @@ const when = new Intl.DateTimeFormat("en-US", {
 });
 const clock = new Intl.DateTimeFormat("en-US", { timeZone: DEFAULT_TZ, hour: "numeric", minute: "2-digit", second: "2-digit" });
 
+const shortDay = new Intl.DateTimeFormat("en-US", { timeZone: DEFAULT_TZ, weekday: "short", hour: "numeric" });
+/** "Fri 2 AM": compact enough for list rows. */
+export const shortWhen = (ms: number) => shortDay.format(ms).replace(",", "");
 export const money = (n: number) => usd0.format(n);
 export const miles = (n: number) => `${num0.format(n)} mi`;
 export const rpm = (n: number | null) => (n === null ? "—" : `$${n.toFixed(2)}`);
