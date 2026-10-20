@@ -2,11 +2,13 @@
 //
 // Planning multi-load routes needs loads near where each truck will be after
 // its first and second loads, not only near where it is now. So searches fan
-// out: first around each truck, then around the most promising destinations of
-// what came back, and so on, until the route depth or the search budget runs
-// out. Identical searches (same equipment and market) are shared across trucks.
+// out: first around each truck, then around where the best partial plans built
+// from what came back would leave the truck, and so on, until the route depth
+// or the search budget runs out. Identical searches (same equipment and market)
+// are shared across trucks.
 
 import { placeLabel, roadMiles } from "../../src/engine/geo";
+import { planRoutes } from "../../src/engine/planner";
 import type { Place, Truck } from "../../src/engine/types";
 import type { LoadSearch, LoadSource, SourceLoad } from "./source";
 
@@ -14,7 +16,7 @@ const DAY = 24 * 3_600_000;
 /** Look-ahead for pickups. Real boards rarely post more than a few days out. */
 const HORIZON_DAYS = 5;
 /** Next-leg markets explored per truck after each depth (routes plan up to 4 loads). */
-const FAN_OUT = [4, 2, 1];
+const FAN_OUT = [5, 3, 2];
 const MAX_DEPTH = 4;
 
 export interface CollectResult {
@@ -52,30 +54,67 @@ export async function collectLoads(opts: {
 
   // Breadth-first across trucks so a small budget is spread fairly instead of
   // being spent entirely on the first truck's deep searches.
-  let frontier = trucks.map((t) => ({ truck: t, markets: [t.location], radius: t.rules.maxDeadheadMiles }));
+  let frontier = trucks.map((t) => ({ truck: t, markets: [t.location], found: new Map<string, SourceLoad>() }));
   for (let depth = 0; depth < MAX_DEPTH && frontier.length > 0; depth++) {
     const next: typeof frontier = [];
-    for (const { truck, markets, radius } of frontier) {
+    for (const { truck, markets, found } of frontier) {
       if (depth >= truck.rules.maxLoadsPerRoute) continue;
-      const found: SourceLoad[] = [];
+      const radius = truck.rules.maxDeadheadMiles;
+      const fresh: SourceLoad[] = [];
       for (const market of markets) {
-        found.push(...await run({
+        const result = await run({
           equipment: truck.equipment,
           origin: market,
           radiusMiles: radius,
           pickupFrom: now,
           pickupTo: now + HORIZON_DAYS * DAY,
-        }));
+        });
+        fresh.push(...result);
+        for (const l of result) found.set(loadKey(l), l);
       }
       const fan = FAN_OUT[depth];
-      if (fan) next.push({ truck, markets: topDestinations(found, fan, radius), radius });
+      if (!fan) continue;
+      const picks = nextMarkets(truck, [...found.values()], now, depth + 1, fan, radius);
+      // Fill any gap with the busiest drop markets, so a thin first search still spreads out.
+      for (const p of topDestinations(fresh, fan, radius)) {
+        if (picks.length >= fan) break;
+        if (!picks.some((q) => roadMiles(q, p) < radius)) picks.push(p);
+      }
+      next.push({ truck, markets: picks, found });
     }
     frontier = next;
   }
 
   const all = new Map<string, SourceLoad>();
-  for (const list of cache.values()) for (const l of list) all.set(`${l.source}|${l.sourceId}`, l);
+  for (const list of cache.values()) for (const l of list) all.set(loadKey(l), l);
   return { loads: [...all.values()], searches, budgetExhausted };
+}
+
+const loadKey = (l: SourceLoad) => `${l.source}|${l.sourceId}`;
+
+/**
+ * Where the truck would be empty after the best plans that can be built from
+ * the loads found so far, counting only plans that use `legs` loads (the ones
+ * that still need a next load searched for).
+ */
+function nextMarkets(truck: Truck, found: SourceLoad[], now: number, legs: number, count: number, mergeMiles: number): Place[] {
+  const loads = found.map((l) => ({ ...l, id: loadKey(l) }));
+  const routes = planRoutes({ ...truck, rules: { ...truck.rules, maxLoadsPerRoute: legs } }, loads, {
+    now, maxAlternatives: count * 3,
+  });
+  // Alternate between the best-paying plans and the soonest-finishing ones: a
+  // long haul often pays best but delivers after the board's posting horizon,
+  // where a search finds nothing to reload with.
+  const usable = routes.filter((r) => r.legs.length === legs);
+  const soonest = [...usable].sort((a, b) => a.totals.finishAt - b.totals.finishAt);
+  const picked: Place[] = [];
+  for (let i = 0; i < usable.length && picked.length < count; i++) {
+    for (const r of [usable[i]!, soonest[i]!]) {
+      const end = r.totals.finishPlace;
+      if (picked.length < count && !picked.some((p) => roadMiles(p, end) < mergeMiles)) picked.push(end);
+    }
+  }
+  return picked;
 }
 
 /**

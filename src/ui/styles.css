@@ -193,3 +193,27 @@ select, input { font: inherit; color: inherit; }
   .truck-list { display: flex; overflow-x: auto; }
   .truck-list .row { min-width: 170px; border-right: 1px solid var(--line); border-bottom: 0; }
 }
+
+/* ---------- Accounts, marks, team ---------- */
+.account { display: inline-flex; gap: 10px; align-items: center; padding-left: 12px; border-left: 1px solid var(--line); }
+.auth { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.auth-card { width: min(360px, 100%); display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 24px; }
+.auth-card h1 { margin: 0; font-size: 20px; }
+.auth-card p { margin: 0; }
+.auth-card label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.auth-card input, .team input { background: var(--panel); border: 1px solid var(--line-2); border-radius: 4px; padding: 6px 8px; color: var(--ink); }
+.marks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.chip { border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 10px; font-size: 13px; color: var(--ink-2); }
+.chip:hover { background: var(--hover); }
+.chip[aria-pressed="true"] { background: var(--sel); border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: 0.6; }
+.undo { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--sel); }
+.confirm { display: inline-flex; gap: 4px; align-items: center; font-size: 14px; }
+.remove { margin-left: auto; color: var(--bad); }
+.empty-fleet { padding: 48px 16px; text-align: center; display: grid; gap: 8px; justify-items: center; }
+.empty-fleet h2, .empty-fleet p { margin: 0; }
+.team { padding: 20px; display: grid; gap: 20px; max-width: 760px; }
+.team h2 { margin: 0; font-size: 17px; }
+.team-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.team-table th { text-align: left; font-weight: 600; color: var(--ink-3); font-size: 13px; }
+.team-table th, .team-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); }

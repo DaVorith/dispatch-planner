@@ -18,7 +18,7 @@ class FlakySource implements LoadSource {
   readonly name = "synthetic" as const;
   fail = false;
   calls: LoadSearch[] = [];
-  constructor(private inner = new SyntheticLoadSource(60_000)) {}
+  constructor(private inner = new SyntheticLoadSource(60_000, Date.now, 2500, 20261020)) {}
   async search(orgId: string, q: LoadSearch): Promise<SourceLoad[]> {
     this.calls.push(q);
     if (this.fail) throw new Error("Provider unavailable");

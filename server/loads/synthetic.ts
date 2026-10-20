@@ -18,8 +18,11 @@ export class SyntheticLoadSource implements LoadSource {
   readonly name = "synthetic" as const;
   private boards = new Map<string, OrgBoard>();
 
-  /** `churnEveryMs`: how often the simulated board moves. `now` is injectable for tests. */
-  constructor(private churnEveryMs = 60_000, private now: () => number = Date.now, private size = 2500) {}
+  /**
+   * `churnEveryMs`: how often the simulated board moves. `now` and `fixedSeed`
+   * (same board for every company) are for tests.
+   */
+  constructor(private churnEveryMs = 60_000, private now: () => number = Date.now, private size = 2500, private fixedSeed?: number) {}
 
   async search(orgId: string, q: LoadSearch): Promise<SourceLoad[]> {
     const board = this.boardFor(orgId);
@@ -36,7 +39,7 @@ export class SyntheticLoadSource implements LoadSource {
     const t = this.now();
     let entry = this.boards.get(orgId);
     if (!entry) {
-      const seed = createHash("sha256").update(orgId).digest().readUInt32LE(0);
+      const seed = this.fixedSeed ?? createHash("sha256").update(orgId).digest().readUInt32LE(0);
       entry = { board: makeLoadBoard(seed, t, this.size), rand: rng(seed ^ 0x9e3779b9), churnedAt: t };
       this.boards.set(orgId, entry);
     } else if (t - entry.churnedAt >= this.churnEveryMs) {
