@@ -7,10 +7,18 @@ import { hourLabel } from "./format";
 const cityKey = (c: { city: string; state: string }) => `${c.city}|${c.state}`;
 const findCity = (key: string) => CITIES.find((c) => cityKey(c) === key) ?? null;
 
-export function RulesPanel({ truck, onSave, onCancel }: {
-  truck: Truck; onSave: (t: Truck) => void; onCancel: () => void;
+export function RulesPanel({ truck, isNew = false, onSave, onRemove, onCancel }: {
+  truck: Truck; isNew?: boolean; onSave: (t: Truck) => Promise<void>; onRemove?: () => Promise<void>; onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<Truck>(truck);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const attempt = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try { await action(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save"); setBusy(false); }
+  };
   const [availableIn, setAvailableIn] = useState(() => Math.max(0, Math.round((truck.availableAt - Date.now()) / HOUR)));
   const r = draft.rules;
   const set = (patch: Partial<Truck>) => setDraft((d) => ({ ...d, ...patch }));
@@ -20,10 +28,16 @@ export function RulesPanel({ truck, onSave, onCancel }: {
   return (
     <form className="rules-panel" onSubmit={(e) => {
       e.preventDefault();
-      onSave({ ...draft, availableAt: Date.now() + availableIn * HOUR });
+      void attempt(() => onSave({ ...draft, name: draft.name.trim() || truck.name, availableAt: Date.now() + availableIn * HOUR }));
     }}>
       <fieldset>
         <legend>Truck</legend>
+        <label>Name or unit number
+          <input id="f-name" type="text" required maxLength={60} value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+        </label>
+        <label>Driver
+          <input id="f-driver" type="text" maxLength={80} value={draft.driver} onChange={(e) => set({ driver: e.target.value })} />
+        </label>
         <label>Empty at
           <select id="f-location" value={cityKey(draft.location)} onChange={(e) => set({ location: findCity(e.target.value) ?? draft.location })}>
             {CITIES.map((c) => <option key={cityKey(c)} value={cityKey(c)}>{c.city}, {c.state}</option>)}
@@ -100,9 +114,19 @@ export function RulesPanel({ truck, onSave, onCancel }: {
         )}
       </fieldset>
 
+      {error && <p className="warn small" role="alert">{error}</p>}
       <div className="rules-actions">
-        <button type="submit" className="btn btn-primary">Save and rebuild plans</button>
-        <button type="button" className="btn btn-quiet" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>{isNew ? "Add truck" : "Save and rebuild plans"}</button>
+        <button type="button" className="btn btn-quiet" onClick={onCancel} disabled={busy}>Cancel</button>
+        {onRemove && (confirmRemove ? (
+          <span className="confirm">
+            Remove {truck.name}?{" "}
+            <button type="button" className="link warn" disabled={busy} onClick={() => void attempt(onRemove)}>Remove</button>{" "}
+            <button type="button" className="link" onClick={() => setConfirmRemove(false)}>Keep</button>
+          </span>
+        ) : (
+          <button type="button" className="link remove" onClick={() => setConfirmRemove(true)}>Remove truck</button>
+        ))}
       </div>
     </form>
   );

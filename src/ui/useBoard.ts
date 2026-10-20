@@ -1,15 +1,17 @@
-// App state for the prototype: trucks, the (synthetic) load board, a refresh
-// loop that mimics a live feed, and the route plans derived from them.
+// Demo data source: a synthetic board in the browser, refreshed every minute,
+// planned locally. Used for the shareable preview, which has no server.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { planRoutes } from "../engine/planner";
 import { churnLoadBoard, makeLoadBoard, rng, sampleTrucks } from "../engine/synthetic";
 import type { Load, RouteCandidate, SortKey, Truck } from "../engine/types";
+import type { BoardModel, LoadMark, MarkStatus } from "./model";
 
 export const REFRESH_EVERY_MS = 60_000;
 /** Plans older than this are shown as stale. */
 export const STALE_AFTER_MS = 3 * 60_000;
 const TRUCKS_KEY = "dispatch-planner:trucks:v1";
+const EXCLUDING: MarkStatus[] = ["booked", "rejected", "unavailable"];
 
 function loadSavedTrucks(now: number): Truck[] {
   try {
@@ -29,41 +31,23 @@ function saveTrucks(trucks: Truck[]) {
   }
 }
 
-export interface FeedState {
-  paused: boolean;
-  lastRefreshed: number;
-  refreshCount: number;
-  added: number;
-  removed: number;
-}
-
-export function useBoard() {
+export function useDemoBoard(): BoardModel {
   const [startedAt] = useState(() => Date.now());
   const [rand] = useState(() => rng(startedAt));
   const [board, setBoard] = useState<Load[]>(() => makeLoadBoard(startedAt & 0xffff, startedAt));
   const [trucks, setTrucks] = useState<Truck[]>(() => loadSavedTrucks(startedAt));
   const [sortBy, setSortBy] = useState<SortKey>("revenuePerDay");
   const [now, setNow] = useState(startedAt);
-  const [feed, setFeed] = useState<FeedState>({
-    paused: false, lastRefreshed: startedAt, refreshCount: 0, added: 0, removed: 0,
-  });
+  const [lastRefreshed, setLastRefreshed] = useState(startedAt);
+  const [paused, setPaused] = useState(false);
+  const [marks, setMarks] = useState<Record<string, LoadMark>>({});
 
   const boardRef = useRef(board);
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     const t = Date.now();
-    const prev = boardRef.current;
-    const next = churnLoadBoard(prev, rand, t);
-    const prevIds = new Set(prev.map((l) => l.id));
-    const nextIds = new Set(next.map((l) => l.id));
-    boardRef.current = next;
-    setBoard(next);
-    setFeed((f) => ({
-      ...f,
-      lastRefreshed: t,
-      refreshCount: f.refreshCount + 1,
-      added: next.filter((l) => !prevIds.has(l.id)).length,
-      removed: prev.filter((l) => !nextIds.has(l.id)).length,
-    }));
+    boardRef.current = churnLoadBoard(boardRef.current, rand, t);
+    setBoard(boardRef.current);
+    setLastRefreshed(t);
   }, [rand]);
 
   useEffect(() => {
@@ -72,40 +56,61 @@ export function useBoard() {
   }, []);
 
   useEffect(() => {
-    if (feed.paused) return;
-    const loop = setInterval(refresh, REFRESH_EVERY_MS);
+    if (paused) return;
+    const loop = setInterval(() => void refresh(), REFRESH_EVERY_MS);
     return () => clearInterval(loop);
-  }, [feed.paused, refresh]);
+  }, [paused, refresh]);
 
-  // Plans are rebuilt when the board refreshes or a truck's settings change,
+  // Plans are rebuilt when the board refreshes or settings or marks change,
   // not every second, so they reflect the board as of `lastRefreshed`.
   const plans = useMemo(() => {
+    const usable = board.filter((l) => !EXCLUDING.includes(marks[l.id]?.status as MarkStatus));
     const out = new Map<string, RouteCandidate[]>();
-    for (const truck of trucks) {
-      out.set(truck.id, planRoutes(truck, board, { now: feed.lastRefreshed, sortBy }));
-    }
+    for (const truck of trucks) out.set(truck.id, planRoutes(truck, usable, { now: lastRefreshed, sortBy }));
     return out;
-  }, [trucks, board, sortBy, feed.lastRefreshed]);
+  }, [trucks, board, sortBy, lastRefreshed, marks]);
 
-  const updateTruck = useCallback((truck: Truck) => {
+  const saveTruck = useCallback(async (truck: Truck, isNew: boolean) => {
     setTrucks((prev) => {
-      const next = prev.map((t) => (t.id === truck.id ? truck : t));
+      const next = isNew ? [...prev, { ...truck, id: `T${Date.now().toString(36)}` }] : prev.map((t) => (t.id === truck.id ? truck : t));
       saveTrucks(next);
       return next;
     });
   }, []);
 
-  const resetTrucks = useCallback(() => {
-    const fresh = sampleTrucks(Date.now());
-    saveTrucks(fresh);
-    setTrucks(fresh);
+  const removeTruck = useCallback(async (id: string) => {
+    setTrucks((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      saveTrucks(next);
+      return next;
+    });
   }, []);
 
-  const setPaused = useCallback((paused: boolean) => setFeed((f) => ({ ...f, paused })), []);
+  const setMark = useCallback(async (loadId: string, status: MarkStatus | null, truckId: string | null) => {
+    setMarks((m) => {
+      const next = { ...m };
+      if (status) next[loadId] = { status, note: "", truckId, updatedAt: Date.now(), by: "You" };
+      else delete next[loadId];
+      return next;
+    });
+  }, []);
 
   return {
-    board, trucks, plans, sortBy, setSortBy, now, feed,
-    stale: now - feed.lastRefreshed > STALE_AFTER_MS,
-    refresh, setPaused, updateTruck, resetTrucks,
+    mode: "demo",
+    trucks, plans, marks, sortBy, setSortBy, now, lastRefreshed,
+    stale: now - lastRefreshed > STALE_AFTER_MS,
+    feedError: null,
+    loadCount: board.length,
+    refresh, saveTruck, removeTruck, setMark,
+    demo: {
+      paused,
+      setPaused,
+      resetTrucks: () => {
+        const fresh = sampleTrucks(Date.now());
+        saveTrucks(fresh);
+        setTrucks(fresh);
+        setMarks({});
+      },
+    },
   };
 }
