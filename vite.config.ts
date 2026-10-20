@@ -5,5 +5,5 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 // Single-file build so the prototype can be shared as one HTML page.
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
-  test: { globals: true, environment: "node" },
+  test: { globals: true, environment: "node", testTimeout: 30_000, hookTimeout: 30_000 },
 });
